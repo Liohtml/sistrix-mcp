@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2026-07-17
+
+### Fixed
+
+- Declare the MCP Registry name (`mcp-name`) in the README so registry
+  ownership validation of the crates.io package succeeds.
+
 ## [0.1.0] - 2026-07-17
 
 Initial release.
@@ -31,4 +38,5 @@ Initial release.
   a 6-target release pipeline (incl. musl static builds) with crates.io,
   ghcr.io, and MCP Registry publishing.
 
+[0.1.1]: https://github.com/Liohtml/sistrix-mcp/releases/tag/v0.1.1
 [0.1.0]: https://github.com/Liohtml/sistrix-mcp/releases/tag/v0.1.0

@@ -335,4 +335,6 @@ Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 [MIT](LICENSE) © Lionel Machire
 
+- MCP Registry name: `mcp-name: io.github.Liohtml/sistrix-mcp`
+
 *Not affiliated with or endorsed by SISTRIX GmbH. SISTRIX is a trademark of SISTRIX GmbH.*
