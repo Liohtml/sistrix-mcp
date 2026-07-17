@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Accurate credit notes: `sistrix_ai_entity` overview is a flat 10 credits.
+- `sistrix_api` now warns that `project.create` / `project.start.onpage.check`
+  write to the account and incur costs.
+- README: honest comparison with SISTRIX's official hosted MCP bridge.
+
 ## [0.1.1] - 2026-07-17
 
 ### Fixed

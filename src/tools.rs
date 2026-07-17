@@ -546,9 +546,10 @@ pub fn catalog() -> Vec<ToolSpec> {
         ToolSpec {
             name: "sistrix_ai_entity",
             description:
-                "How AI models see one entity (brand, product, person): overview, \
-                          competing entities, thematic environment, the prompts that mention it \
-                          (or just their count), and the sources AI cites for it. 1 credit per row.",
+                "How AI models see one entity (brand, product, person): overview (flat 10 \
+                          credits), competing entities, thematic environment, the prompts that \
+                          mention it (or just their count), and the sources AI cites for it \
+                          (each 1 credit per row).",
             target_scopes: None,
             params: vec![
                 select_param("report", "Which entity report to fetch.", AI_ENTITY_CASES),
@@ -650,7 +651,9 @@ pub fn catalog() -> Vec<ToolSpec> {
                           dedicated sistrix_* tools; use this for methods they don't cover \
                           (domain.ideas filters, ai.check.*, ai.prompt.answers, \
                           marketplace.keyword.*, project.onpage.*, ...). Methods and parameters: \
-                          https://www.sistrix.com/api/ — watch the credit costs.",
+                          https://www.sistrix.com/api/ — watch the credit costs. Caution: \
+                          project.create and project.start.onpage.check WRITE to the account \
+                          and incur costs — only call them when the user explicitly asks.",
             target_scopes: None,
             params: vec![
                 ParamSpec::new(

@@ -20,6 +20,14 @@
 - Der `ai.check`-Bereich (5 Methoden) fehlt dort bereits — die API ist seit März 2026 gewachsen;
   ein 1:1-Spiegel veraltet schnell, ein Escape-Hatch nicht.
 
+## Nachtrag: SISTRIX' eigener MCP-Server
+
+SISTRIX dokumentiert unter `/api/connection-to-chatbot-ai/` eine eigene MCP-Anbindung
+(gehostete Bridge, gleiche API-Keys, laut Doku zählen MCP-Anfragen derzeit **nicht** gegen die
+Credit-Quote, Tool-Umfang nicht spezifiziert). Kein Grund gegen den Eigenbau — unser Server ist
+selbst-gehostet, quelloffen, mit kuratierten Schemas und Escape-Hatch — aber die README
+positioniert sich ehrlich dazu (Abschnitt „How is this different …").
+
 ## Konsequenz
 
 Neuentwicklung `sistrix-mcp` in Rust, Schema wie [matomo-mcp](https://github.com/Liohtml/matomo-mcp):

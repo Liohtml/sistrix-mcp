@@ -228,7 +228,7 @@ Any client that speaks MCP over stdio works with the generic shape:
 | `sistrix_keyword` | *"Volume, CPC, intent, SERP features for 'ergonomic chair'?"* | 1–5/row |
 | `sistrix_links` | *"How does our backlink profile look? Top link texts?"* | 1/row–25 flat |
 | `sistrix_ai_top` | *"Which brands does AI mention most in our market?"* | 1/row |
-| `sistrix_ai_entity` | *"How do ChatGPT & Co. see our brand? Which sources do they cite?"* | 1/row |
+| `sistrix_ai_entity` | *"How do ChatGPT & Co. see our brand? Which sources do they cite?"* | 1/row–10 flat |
 | `sistrix_ai_tracker` | *"How visible are we in our tracked AI prompts vs. competitors?"* | 1/row |
 | `sistrix_project` | *"Optimizer project rankings, onpage crawl results, tracked SERPs."* | varies |
 | `sistrix_amazon` | *"Amazon rankings, price and review history for this ASIN."* | 1/row |
@@ -272,6 +272,20 @@ automatically when it's hit.
 | `--max-response-chars` | `SISTRIX_MAX_RESPONSE_CHARS` | `50000` | Response budget before truncation |
 | `--api-url` | `SISTRIX_API_URL` | `https://api.sistrix.com/` | API endpoint (testing only) |
 | `--check` | — | — | Verify the API key, print remaining credits, then exit |
+
+## 🆚 How is this different from SISTRIX's official MCP integration?
+
+SISTRIX [documents its own MCP bridge](https://www.sistrix.com/api/connection-to-chatbot-ai/)
+for connecting chatbots to the API — and per their docs, requests through it
+currently don't count against the credit quota. If that covers your needs, use it!
+
+sistrix-mcp is the open-source, self-hosted alternative: a local stdio binary
+with a curated, fully documented tool surface (17 tools with exact schemas,
+enums, and per-case validation), an escape hatch to **every** documented API
+method including the newest areas (`ai.check`, marketplace, Optimizer onpage),
+hard response budgets for the model's context, offline tests, and no dependency
+on a hosted bridge. MIT-licensed, so you can read exactly what the model can and
+cannot do with your API key.
 
 ## 🩺 Troubleshooting
 
