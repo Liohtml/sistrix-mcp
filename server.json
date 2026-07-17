@@ -1,0 +1,61 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.Liohtml/sistrix-mcp",
+  "title": "SISTRIX SEO Toolbox",
+  "description": "Curated SISTRIX SEO tools: visibility index, rankings, keywords, backlinks, AI visibility & Amazon marketplace data.",
+  "repository": {
+    "url": "https://github.com/Liohtml/sistrix-mcp",
+    "source": "github"
+  },
+  "version": "0.1.0",
+  "websiteUrl": "https://github.com/Liohtml/sistrix-mcp",
+  "packages": [
+    {
+      "registryType": "cargo",
+      "identifier": "sistrix-mcp",
+      "version": "0.1.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "SISTRIX_API_KEY",
+          "description": "SISTRIX API key (app.sistrix.com/account/api)",
+          "isRequired": true,
+          "isSecret": true,
+          "format": "string"
+        },
+        {
+          "name": "SISTRIX_COUNTRY",
+          "description": "Optional default country code (e.g. de, at, fr) applied when a tool call does not pass one",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "string"
+        }
+      ]
+    },
+    {
+      "registryType": "oci",
+      "identifier": "ghcr.io/liohtml/sistrix-mcp:v0.1.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "SISTRIX_API_KEY",
+          "description": "SISTRIX API key (app.sistrix.com/account/api)",
+          "isRequired": true,
+          "isSecret": true,
+          "format": "string"
+        },
+        {
+          "name": "SISTRIX_COUNTRY",
+          "description": "Optional default country code (e.g. de, at, fr) applied when a tool call does not pass one",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "string"
+        }
+      ]
+    }
+  ]
+}
