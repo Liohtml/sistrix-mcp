@@ -333,7 +333,7 @@ That's the context guard doing its job. Ask for fewer rows or raise
 ```bash
 git clone https://github.com/Liohtml/sistrix-mcp.git
 cd sistrix-mcp
-cargo test                                  # 46 offline tests, no SISTRIX account needed
+cargo test                                  # 49 offline tests, no SISTRIX account needed
 cargo clippy --all-targets -- -D warnings
 cargo run -- --api-key YOUR_KEY --check
 ```
@@ -350,5 +350,10 @@ Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
 [MIT](LICENSE) © Lionel Machire
 
 - MCP Registry name: `mcp-name: io.github.Liohtml/sistrix-mcp`
+- Also listed on Glama:
+
+<a href="https://glama.ai/mcp/servers/Liohtml/sistrix-mcp">
+  <img width="380" height="200" src="https://glama.ai/mcp/servers/Liohtml/sistrix-mcp/badge" alt="sistrix-mcp on Glama" />
+</a>
 
 *Not affiliated with or endorsed by SISTRIX GmbH. SISTRIX is a trademark of SISTRIX GmbH.*

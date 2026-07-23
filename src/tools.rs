@@ -805,7 +805,7 @@ impl Registry {
             ));
         }
 
-        Ok(vec![(scope.to_string(), target)])
+        Ok(vec![(scope.to_string(), normalize_target(&target, scope)?)])
     }
 
     fn collect_params(
@@ -823,7 +823,17 @@ impl Registry {
 
             let value = match args.get(param.name) {
                 Some(Value::Null) | None => None,
-                Some(v) => Some(stringify(param, v)?),
+                Some(v) => {
+                    let text = stringify(param, v)?;
+                    // Every documented SISTRIX flag defaults to FALSE, and the
+                    // API may treat a flag as set by its mere presence — so an
+                    // explicit `false` is only safe when omitted entirely.
+                    if param.kind == ParamKind::Boolean && text == "false" {
+                        None
+                    } else {
+                        Some(text)
+                    }
+                }
             };
 
             match (value, param.requirement) {
@@ -845,6 +855,31 @@ impl Registry {
 
         Ok(out)
     }
+}
+
+/// Models frequently pass a full URL even for the domain/host scopes, but
+/// SISTRIX expects a bare hostname there — strip scheme, path, and query.
+/// The path/url scopes are passed through untouched.
+fn normalize_target(target: &str, scope: &str) -> Result<String, String> {
+    if scope != "domain" && scope != "host" {
+        return Ok(target.to_string());
+    }
+    let stripped = target
+        .strip_prefix("https://")
+        .or_else(|| target.strip_prefix("http://"))
+        .unwrap_or(target);
+    let host = stripped
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or("")
+        .trim_end_matches('.');
+    if host.is_empty() {
+        return Err(format!(
+            "invalid target '{target}' for scope '{scope}': expected a hostname \
+             like 'example.com'"
+        ));
+    }
+    Ok(host.to_string())
 }
 
 fn requires_hint(tool: &str, required: &str) -> String {
@@ -928,11 +963,18 @@ fn stringify(param: &ParamSpec, value: &Value) -> Result<String, String> {
 
     let text = match (param.kind, value) {
         (ParamKind::Integer, Value::Number(n)) if n.is_i64() || n.is_u64() => n.to_string(),
-        (ParamKind::Integer, Value::String(s)) if s.parse::<i64>().is_ok() => s.clone(),
+        // Some clients serialize integers as whole floats (e.g. 25.0).
+        (ParamKind::Integer, Value::Number(n)) => match n.as_f64() {
+            Some(f) if f.fract() == 0.0 && f.abs() < 9e15 => format!("{}", f as i64),
+            _ => return fail("an integer"),
+        },
+        (ParamKind::Integer, Value::String(s)) if s.trim().parse::<i64>().is_ok() => {
+            s.trim().to_string()
+        }
         (ParamKind::Integer, _) => return fail("an integer"),
 
         (ParamKind::Boolean, Value::Bool(b)) => b.to_string(),
-        (ParamKind::Boolean, Value::String(s)) => match s.as_str() {
+        (ParamKind::Boolean, Value::String(s)) => match s.to_ascii_lowercase().as_str() {
             "true" | "1" => "true".to_string(),
             "false" | "0" => "false".to_string(),
             _ => return fail("a boolean"),
@@ -1254,6 +1296,94 @@ mod tests {
             .resolve("sistrix_keyword", &args(json!({})))
             .unwrap_err();
         assert!(err.contains("kw"));
+    }
+
+    #[test]
+    fn url_targets_are_normalized_for_domain_and_host_scopes() {
+        let registry = Registry::new(None);
+
+        let inv = registry
+            .resolve(
+                "sistrix_domain_overview",
+                &args(json!({"target": "https://example.com/blog/?q=1"})),
+            )
+            .unwrap();
+        assert!(inv
+            .params
+            .contains(&("domain".into(), "example.com".into())));
+
+        let inv = registry
+            .resolve(
+                "sistrix_visibility",
+                &args(json!({"target": "http://www.example.com/", "scope": "host"})),
+            )
+            .unwrap();
+        assert!(inv
+            .params
+            .contains(&("host".into(), "www.example.com".into())));
+
+        // path/url scopes keep the target untouched.
+        let inv = registry
+            .resolve(
+                "sistrix_visibility",
+                &args(json!({"target": "https://example.com/blog/", "scope": "path"})),
+            )
+            .unwrap();
+        assert!(inv
+            .params
+            .contains(&("path".into(), "https://example.com/blog/".into())));
+
+        let err = registry
+            .resolve(
+                "sistrix_domain_overview",
+                &args(json!({"target": "https://"})),
+            )
+            .unwrap_err();
+        assert!(err.contains("invalid target"));
+    }
+
+    #[test]
+    fn false_flags_are_omitted() {
+        let registry = Registry::new(None);
+        let inv = registry
+            .resolve(
+                "sistrix_keyword_counts",
+                &args(json!({"target": "example.com", "history": false})),
+            )
+            .unwrap();
+        assert!(
+            !inv.params.iter().any(|(k, _)| k == "history"),
+            "explicit false flag must be omitted, got: {:?}",
+            inv.params
+        );
+
+        let inv = registry
+            .resolve(
+                "sistrix_keyword_counts",
+                &args(json!({"target": "example.com", "history": "False"})),
+            )
+            .unwrap();
+        assert!(!inv.params.iter().any(|(k, _)| k == "history"));
+    }
+
+    #[test]
+    fn whole_float_limits_are_accepted() {
+        let registry = Registry::new(None);
+        let inv = registry
+            .resolve(
+                "sistrix_competitors",
+                &args(json!({"target": "example.com", "limit": 10.0})),
+            )
+            .unwrap();
+        assert!(inv.params.contains(&("limit".into(), "10".into())));
+
+        let err = registry
+            .resolve(
+                "sistrix_competitors",
+                &args(json!({"target": "example.com", "limit": 10.5})),
+            )
+            .unwrap_err();
+        assert!(err.contains("integer"));
     }
 
     #[test]
