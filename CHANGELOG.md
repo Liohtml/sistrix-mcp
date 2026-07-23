@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-07-23
+
+### Fixed
+
+- URL-shaped targets are normalized for the `domain`/`host` scopes: models
+  frequently pass `https://example.com/` where SISTRIX expects a bare
+  hostname — scheme, path, and query are now stripped automatically
+  (`path`/`url` scopes stay untouched).
+- Boolean flags passed as `false` are omitted from the API request entirely.
+  Every documented SISTRIX flag defaults to `FALSE`, and presence-based
+  parsing could otherwise flip a flag on.
+- Whole-number floats (e.g. `25.0`) are accepted for integer arguments —
+  some MCP clients serialize integers that way.
+- Boolean string coercion is now case-insensitive (`"True"`, `"FALSE"`, ...).
+- In-band SISTRIX error 500 (general/internal error) is retried with backoff
+  like its HTTP counterpart.
+- New actionable hints for error 1000 (*no results* — surfaced as an empty
+  result, not a failure) and 1001 (invalid date).
+
+### Added
+
+- `glama.json` so the Glama MCP registry can verify the maintainer and
+  re-index the repository.
+
 ### Changed
 
 - Accurate credit notes: `sistrix_ai_entity` overview is a flat 10 credits.
@@ -47,5 +71,6 @@ Initial release.
   a 6-target release pipeline (incl. musl static builds) with crates.io,
   ghcr.io, and MCP Registry publishing.
 
+[0.1.2]: https://github.com/Liohtml/sistrix-mcp/releases/tag/v0.1.2
 [0.1.1]: https://github.com/Liohtml/sistrix-mcp/releases/tag/v0.1.1
 [0.1.0]: https://github.com/Liohtml/sistrix-mcp/releases/tag/v0.1.0

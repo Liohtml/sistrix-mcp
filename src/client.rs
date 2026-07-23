@@ -70,6 +70,11 @@ fn hint_for_code(code: i64) -> Option<&'static str> {
         ),
         404 => Some("the method name is unknown — see https://www.sistrix.com/api/"),
         429 => Some("rate limit is 300 requests/minute — slow down and retry"),
+        1000 => Some(
+            "the query matched no data — this is an empty result, not a failure; \
+             try another country index or a broader scope",
+        ),
+        1001 => Some("dates must be in YYYY-MM-DD format and within the available data range"),
         1002 | 1003 | 4007 => Some("check the parameters against https://www.sistrix.com/api/"),
         1004 => Some("this SISTRIX function was retired — check the docs for a replacement"),
         2000 | 2001 => {
@@ -268,7 +273,8 @@ fn is_retryable(err: &SistrixError) -> bool {
                 | StatusCode::SERVICE_UNAVAILABLE
                 | StatusCode::GATEWAY_TIMEOUT
         ),
-        SistrixError::Api { code, .. } => *code == Some(429),
+        // In-band 429 (rate limit) and 500 (general/internal error) are transient.
+        SistrixError::Api { code, .. } => matches!(*code, Some(429) | Some(500)),
         _ => false,
     }
 }
@@ -328,7 +334,7 @@ mod tests {
     #[test]
     fn hints_cover_documented_codes() {
         for code in [
-            100, 200, 403, 404, 429, 1002, 1004, 2000, 3000, 3502, 4000, 5000, 5001,
+            100, 200, 403, 404, 429, 1000, 1001, 1002, 1004, 2000, 3000, 3502, 4000, 5000, 5001,
         ] {
             assert!(hint_for_code(code).is_some(), "missing hint for {code}");
         }
@@ -346,6 +352,11 @@ mod tests {
         assert!(is_retryable(&SistrixError::Api {
             code: Some(429),
             message: "too many requests".into(),
+            hint: None,
+        }));
+        assert!(is_retryable(&SistrixError::Api {
+            code: Some(500),
+            message: "internal error".into(),
             hint: None,
         }));
         assert!(!is_retryable(&SistrixError::Api {
