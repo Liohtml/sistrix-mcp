@@ -12,7 +12,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use rmcp::model::Tool;
+use rmcp::model::{Tool, ToolAnnotations};
 use serde_json::{json, Map, Value};
 
 // ---------------------------------------------------------------------------
@@ -100,6 +100,8 @@ pub enum Binding {
 #[derive(Debug, Clone)]
 pub struct ToolSpec {
     pub name: &'static str,
+    /// Human-readable display name shown by MCP clients and registries.
+    pub title: &'static str,
     pub description: &'static str,
     /// When set, the tool takes `target` + `scope`; the slice lists the
     /// allowed scope values (SISTRIX parameter names), first is the default.
@@ -298,6 +300,7 @@ pub fn catalog() -> Vec<ToolSpec> {
     vec![
         ToolSpec {
             name: "sistrix_credits",
+            title: "API credit balance",
             description: "Show the remaining SISTRIX API credits for this account. Free to call. \
                           Credits refill weekly; most other tools cost credits per returned row.",
             target_scopes: None,
@@ -309,6 +312,7 @@ pub fn catalog() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: "sistrix_lists",
+            title: "Discovery lists",
             description: "Discovery lists, free to call: available country codes for the Google \
                           and Amazon indices, available SERP-feature names (for filters), and \
                           available AI model codes.",
@@ -321,6 +325,7 @@ pub fn catalog() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: "sistrix_domain_overview",
+            title: "Domain SEO overview",
             description: "One-call overview of a domain's most important SEO key figures: \
                           visibility index, organic keyword count, and ads count, each with date. \
                           Costs a flat 5 credits. The go-to first look at any domain.",
@@ -333,6 +338,7 @@ pub fn catalog() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: "sistrix_visibility",
+            title: "Visibility Index",
             description: "SISTRIX Visibility Index for a domain/host/path/URL: the current value, \
                           weekly history, daily values for the last 30 days, or the all-time \
                           high/low (report=min_max, flat 10 credits; others 1 credit per value).",
@@ -354,6 +360,7 @@ pub fn catalog() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: "sistrix_keyword_counts",
+            title: "Ranking keyword counts",
             description: "How many keywords a domain/host/path/URL ranks for: organic keywords, \
                           top-10 organic keywords, Google Ads keywords, or the count of ranking \
                           URLs. Set history=true for weekly time series.",
@@ -376,6 +383,7 @@ pub fn catalog() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: "sistrix_competitors",
+            title: "SEO & Ads competitors",
             description: "Competitors of a domain and their similarity in % — organic search \
                           competitors (channel=seo) or Google Ads competitors (channel=ads). \
                           1 credit per row.",
@@ -392,6 +400,7 @@ pub fn catalog() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: "sistrix_keyword_ideas",
+            title: "Keyword opportunities & ideas",
             description: "Keyword research for a domain: ranking opportunities (keywords just \
                           off page 1 with a 0-100 'gain' potential) or related-search keyword \
                           ideas from Google's 'related queries'. 1 credit per row.",
@@ -408,6 +417,7 @@ pub fn catalog() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: "sistrix_domain_structure",
+            title: "Ranking structure",
             description: "Where a domain's rankings come from: top ranking URLs, hosts \
                           (subdomains), or paths (directories) with top-10/top-100 counts and \
                           visibility share; the keyword distribution across Google result pages; \
@@ -431,6 +441,7 @@ pub fn catalog() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: "sistrix_domain_rankings",
+            title: "Domain keyword rankings",
             description: "All keywords a domain/host/path/URL ranks for, with position, traffic \
                           and ranking URL — organic (channel=seo) or Google Ads (channel=ads). \
                           Filter by position range, search term, or SERP feature. 1 credit per \
@@ -477,6 +488,7 @@ pub fn catalog() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: "sistrix_keyword",
+            title: "Keyword analysis",
             description: "Everything about one keyword: top organic rankings, key metrics \
                           (volume/CPC/competition/device split — 5 credits per keyword!), \
                           competition score, search intent (Know/Visit/Website/Do), SERP \
@@ -507,6 +519,7 @@ pub fn catalog() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: "sistrix_links",
+            title: "Backlink profile",
             description: "Backlink data for a domain/host/path: profile overview (total links, \
                           host/domain/IP/network popularity — flat 25 credits), the backlink \
                           list (1 credit per row, max 250 per query), top link texts, or top \
@@ -524,6 +537,7 @@ pub fn catalog() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: "sistrix_ai_top",
+            title: "AI visibility top charts",
             description: "SISTRIX AI-visibility charts: the brands, entities, or source domains \
                           most often referenced in AI answers (ChatGPT, Perplexity, Google AI \
                           Overviews, AI Mode). 1 credit per row.",
@@ -545,6 +559,7 @@ pub fn catalog() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: "sistrix_ai_entity",
+            title: "AI entity analysis",
             description:
                 "How AI models see one entity (brand, product, person): overview (flat 10 \
                           credits), competing entities, thematic environment, the prompts that \
@@ -571,6 +586,7 @@ pub fn catalog() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: "sistrix_ai_tracker",
+            title: "AI visibility tracker",
             description: "AI-visibility tracking projects: list the account's tracker projects \
                           (report=projects, free), then per project the tracked prompts with \
                           brand visibility, competitors, thematic environment, and the domains/\
@@ -596,6 +612,7 @@ pub fn catalog() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: "sistrix_project",
+            title: "Optimizer projects",
             description: "SISTRIX Optimizer projects: list projects (report=list, free), then \
                           per project the visibility index, tracked keyword rankings, \
                           competitors, onpage-crawl overview, or the SERPs for one tracked \
@@ -626,6 +643,7 @@ pub fn catalog() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: "sistrix_amazon",
+            title: "Amazon marketplace data",
             description: "Amazon marketplace data for a product (by ASIN): key-figures overview \
                           (flat 1 credit), ranking keywords with position and traffic, price \
                           history, or review history. Country defaults to amazon.de.",
@@ -647,6 +665,7 @@ pub fn catalog() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: "sistrix_api",
+            title: "Raw SISTRIX API call",
             description: "Escape hatch: call ANY SISTRIX API method directly. Prefer the \
                           dedicated sistrix_* tools; use this for methods they don't cover \
                           (domain.ideas filters, ai.check.*, ai.prompt.answers, \
@@ -1093,15 +1112,27 @@ fn build_mcp_tool(spec: &ToolSpec, default_country: Option<&str>) -> Tool {
         schema.insert("required".into(), Value::Array(required));
     }
 
+    // Every curated tool is a read-only query against the SISTRIX API. The
+    // raw escape hatch can reach the few write methods (project.create,
+    // project.start.onpage.check), which add data but never destroy any.
+    let read_only = !matches!(spec.binding, Binding::Raw);
+    let annotations = ToolAnnotations {
+        title: Some(spec.title.to_string()),
+        read_only_hint: Some(read_only),
+        destructive_hint: (!read_only).then_some(false),
+        idempotent_hint: None,
+        open_world_hint: Some(true),
+    };
+
     Tool {
         name: spec.name.into(),
         description: Some(spec.description.into()),
         input_schema: Arc::new(schema),
-        annotations: None,
+        annotations: Some(annotations),
         icons: None,
         meta: None,
         output_schema: None,
-        title: None,
+        title: Some(spec.title.to_string()),
     }
 }
 
@@ -1457,6 +1488,28 @@ mod tests {
                 err.contains("method"),
                 "expected method error for '{bad}', got: {err}"
             );
+        }
+    }
+
+    #[test]
+    fn every_tool_has_title_and_annotations() {
+        let registry = Registry::new(None);
+        for tool in registry.mcp_tools() {
+            let title = tool.title.as_deref().unwrap_or_default();
+            assert!(!title.is_empty(), "tool '{}' missing title", tool.name);
+
+            let annotations = tool
+                .annotations
+                .as_ref()
+                .unwrap_or_else(|| panic!("tool '{}' missing annotations", tool.name));
+            let read_only = annotations.read_only_hint;
+            if tool.name == "sistrix_api" {
+                assert_eq!(read_only, Some(false), "raw tool can reach write methods");
+                assert_eq!(annotations.destructive_hint, Some(false));
+            } else {
+                assert_eq!(read_only, Some(true), "'{}' is a query tool", tool.name);
+            }
+            assert_eq!(annotations.open_world_hint, Some(true));
         }
     }
 

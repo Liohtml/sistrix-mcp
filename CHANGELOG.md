@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-07-29
+
+### Added
+
+- Human-readable `title` and MCP tool annotations on every tool:
+  `readOnlyHint: true` for all curated query tools, `readOnlyHint: false` +
+  `destructiveHint: false` for the `sistrix_api` escape hatch (it can reach
+  SISTRIX's additive write methods), `openWorldHint: true` throughout.
+- Request pacing: consecutive API calls are spaced at least 300 ms apart
+  (SISTRIX's documented minimum), shared across concurrent tool calls — so
+  agentic bursts no longer trip the rate limit.
+
+### Changed
+
+- Declared MCP protocol version raised to 2025-03-26 (the version that
+  introduced tool annotations); older clients are negotiated down
+  automatically.
+
 ## [0.1.2] - 2026-07-23
 
 ### Fixed
@@ -71,6 +89,7 @@ Initial release.
   a 6-target release pipeline (incl. musl static builds) with crates.io,
   ghcr.io, and MCP Registry publishing.
 
+[0.1.3]: https://github.com/Liohtml/sistrix-mcp/releases/tag/v0.1.3
 [0.1.2]: https://github.com/Liohtml/sistrix-mcp/releases/tag/v0.1.2
 [0.1.1]: https://github.com/Liohtml/sistrix-mcp/releases/tag/v0.1.1
 [0.1.0]: https://github.com/Liohtml/sistrix-mcp/releases/tag/v0.1.0

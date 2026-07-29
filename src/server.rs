@@ -55,7 +55,8 @@ pub fn shape_response(value: &serde_json::Value, max_chars: usize) -> String {
 impl ServerHandler for SistrixServer {
     fn get_info(&self) -> ServerInfo {
         ServerInfo {
-            protocol_version: ProtocolVersion::V_2024_11_05,
+            // rmcp negotiates down for older clients automatically.
+            protocol_version: ProtocolVersion::LATEST,
             capabilities: ServerCapabilities::builder().enable_tools().build(),
             server_info: Implementation {
                 name: "sistrix-mcp".to_string(),

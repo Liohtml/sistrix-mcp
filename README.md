@@ -333,7 +333,7 @@ That's the context guard doing its job. Ask for fewer rows or raise
 ```bash
 git clone https://github.com/Liohtml/sistrix-mcp.git
 cd sistrix-mcp
-cargo test                                  # 49 offline tests, no SISTRIX account needed
+cargo test                                  # 51 offline tests, no SISTRIX account needed
 cargo clippy --all-targets -- -D warnings
 cargo run -- --api-key YOUR_KEY --check
 ```
