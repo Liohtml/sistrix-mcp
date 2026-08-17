@@ -37,6 +37,7 @@ Every question the SISTRIX Toolbox can answer, your AI assistant can now answer 
 | | |
 |---|---|
 | 🎯 **Curated, not generated** | 17 hand-crafted tools modeled on real SEO questions — not 90+ auto-generated API mirrors that flood the model's context and degrade tool selection. |
+| 🧭 **Guided workflows** | Four MCP prompts (SEO health check, keyword research, competitor comparison, AI visibility report) run a complete credit-aware analysis with one click. |
 | 💳 **Credit-aware** | SISTRIX bills most API calls per returned row from a weekly credit budget. Every tool ships tight row limits, cost notes in the descriptions, and a free `sistrix_credits` balance check — so one question never burns your week. |
 | ⚡ **Instant startup** | No introspection round-trips. One static binary, no Node, no Python, no runtime. Starts in milliseconds. |
 | 🔒 **Safe by default** | API key sent via POST body only (never in URLs/logs), redacted from every error message. |
@@ -239,6 +240,19 @@ Any client that speaks MCP over stdio works with the generic shape:
 Domain tools accept a `target` (the domain, host, path, or URL) plus a `scope`
 that tells SISTRIX how to interpret it, a `country` index, and a row `limit`.
 
+### Guided workflows (MCP prompts)
+
+Four ready-made analysis workflows ship as MCP prompts — clients like Claude
+surface them as one-click commands. Each runs a proven, credit-aware tool
+sequence and ends in a structured report:
+
+| Prompt | Arguments | What you get |
+|--------|-----------|--------------|
+| `seo_health_check` | `target`, `country?` | Full status: key figures, trend, competitors, quick wins, next actions |
+| `keyword_research` | `keyword`, `country?` | Metrics, intent, SERP features, questions, who ranks — plus a verdict |
+| `competitor_comparison` | `target`, `competitor`, `country?` | Side-by-side comparison and 3 concrete moves to close the gap |
+| `ai_visibility_report` | `brand`, `country?` | How ChatGPT & Co. see the brand: competitors, prompts, cited sources |
+
 ### Prompts to try
 
 - *"Give me an SEO health check for example.com in Germany."*
@@ -333,7 +347,7 @@ That's the context guard doing its job. Ask for fewer rows or raise
 ```bash
 git clone https://github.com/Liohtml/sistrix-mcp.git
 cd sistrix-mcp
-cargo test                                  # 49 offline tests, no SISTRIX account needed
+cargo test                                  # 59 offline tests, no SISTRIX account needed
 cargo clippy --all-targets -- -D warnings
 cargo run -- --api-key YOUR_KEY --check
 ```

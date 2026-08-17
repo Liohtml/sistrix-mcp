@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-07-29
+
+### Added
+
+- Four guided MCP prompts (surfaced as one-click commands / slash-commands in
+  clients): `seo_health_check`, `keyword_research`, `competitor_comparison`,
+  and `ai_visibility_report`. Each walks the model through a proven,
+  credit-aware analysis sequence — no tool knowledge required.
+- Bulk keyword lookup: `sistrix_keyword` accepts an array of keywords for
+  `report='metrics'` and `report='competition'` (SISTRIX's documented bulk
+  format), so ten keywords cost one call instead of ten.
+- Server-side regex filters: `regex_keyword`/`regex_url` on
+  `sistrix_domain_rankings`, `regex_keyword` on `sistrix_keyword_ideas`
+  (related searches), and `regex_url` on `sistrix_domain_structure`
+  (top URLs) — only matching rows are returned and billed.
+- Human-readable `title` and MCP tool annotations on every tool:
+  `readOnlyHint: true` for all curated query tools, `readOnlyHint: false` +
+  `destructiveHint: false` for the `sistrix_api` escape hatch (it can reach
+  SISTRIX's additive write methods), `openWorldHint: true` throughout.
+- Request pacing: consecutive API calls are spaced at least 300 ms apart
+  (SISTRIX's documented minimum), shared across concurrent tool calls — so
+  agentic bursts no longer trip the rate limit.
+
+### Changed
+
+- Declared MCP protocol version raised to 2025-03-26 (the version that
+  introduced tool annotations); older clients are negotiated down
+  automatically.
+
 ## [0.1.2] - 2026-07-23
 
 ### Fixed
@@ -71,6 +100,7 @@ Initial release.
   a 6-target release pipeline (incl. musl static builds) with crates.io,
   ghcr.io, and MCP Registry publishing.
 
+[0.1.3]: https://github.com/Liohtml/sistrix-mcp/releases/tag/v0.1.3
 [0.1.2]: https://github.com/Liohtml/sistrix-mcp/releases/tag/v0.1.2
 [0.1.1]: https://github.com/Liohtml/sistrix-mcp/releases/tag/v0.1.1
 [0.1.0]: https://github.com/Liohtml/sistrix-mcp/releases/tag/v0.1.0

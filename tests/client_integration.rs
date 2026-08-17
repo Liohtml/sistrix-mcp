@@ -183,6 +183,26 @@ async fn non_json_responses_are_reported() {
 }
 
 #[tokio::test]
+async fn consecutive_requests_are_spaced_out() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"ok": true})))
+        .mount(&server)
+        .await;
+
+    let client = client_for(&server).await;
+    let start = std::time::Instant::now();
+    client.call("credits", &[]).await.unwrap();
+    client.call("credits", &[]).await.unwrap();
+
+    assert!(
+        start.elapsed() >= std::time::Duration::from_millis(300),
+        "second request must wait for the 300 ms SISTRIX spacing, took {:?}",
+        start.elapsed()
+    );
+}
+
+#[tokio::test]
 async fn method_becomes_the_request_path() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))

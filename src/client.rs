@@ -7,12 +7,15 @@
 //! exponential backoff — SISTRIX allows 300 requests/minute with at least
 //! 300 ms between requests.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use reqwest::header::HeaderValue;
 use reqwest::{Client, StatusCode};
 use serde_json::Value;
 use thiserror::Error;
+use tokio::sync::Mutex;
+use tokio::time::Instant;
 use tracing::{debug, warn};
 use url::Url;
 
@@ -20,6 +23,8 @@ use crate::config::Config;
 
 const MAX_ATTEMPTS: u32 = 3;
 const BACKOFF_BASE_MS: u64 = 400;
+/// SISTRIX requires at least 300 ms between requests (300 requests/minute).
+const MIN_REQUEST_SPACING: Duration = Duration::from_millis(300);
 /// Cap error bodies quoted back to the model.
 const ERROR_BODY_PREVIEW: usize = 500;
 
@@ -96,6 +101,9 @@ pub struct SistrixClient {
     http: Client,
     base: Url,
     api_key: Option<String>,
+    /// Start time of the last request — clones share it, so concurrent tool
+    /// calls are spaced out too.
+    last_request: Arc<Mutex<Option<Instant>>>,
 }
 
 impl SistrixClient {
@@ -117,7 +125,20 @@ impl SistrixClient {
             http,
             base,
             api_key: config.api_key.clone(),
+            last_request: Arc::new(Mutex::new(None)),
         })
+    }
+
+    /// Enforce the documented minimum spacing between request starts.
+    async fn pace(&self) {
+        let mut last = self.last_request.lock().await;
+        if let Some(prev) = *last {
+            let elapsed = prev.elapsed();
+            if elapsed < MIN_REQUEST_SPACING {
+                tokio::time::sleep(MIN_REQUEST_SPACING - elapsed).await;
+            }
+        }
+        *last = Some(Instant::now());
     }
 
     /// Call a SISTRIX API method (e.g. `domain.overview`) with query parameters.
@@ -144,6 +165,7 @@ impl SistrixClient {
         let mut attempt = 0;
         loop {
             attempt += 1;
+            self.pace().await;
             match self.send_once(&endpoint, &form).await {
                 Err(err) if attempt < MAX_ATTEMPTS && is_retryable(&err) => {
                     let delay = BACKOFF_BASE_MS * 2u64.pow(attempt - 1);
