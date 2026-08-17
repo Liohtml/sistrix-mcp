@@ -41,6 +41,9 @@ pub struct ParamSpec {
     pub requirement: Requirement,
     pub default: Option<&'static str>,
     pub choices: &'static [&'static str],
+    /// String params only: also accept an array of strings, serialized in
+    /// SISTRIX's bulk format `["a", "b"]`.
+    pub accepts_list: bool,
 }
 
 impl ParamSpec {
@@ -52,7 +55,13 @@ impl ParamSpec {
             requirement: Requirement::Optional,
             default: None,
             choices: &[],
+            accepts_list: false,
         }
+    }
+
+    const fn list_ok(mut self) -> Self {
+        self.accepts_list = true;
+        self
     }
 
     const fn required(mut self) -> Self {
@@ -409,6 +418,12 @@ pub fn catalog() -> Vec<ToolSpec> {
                 select_param("report", "Which idea source to use.", IDEA_CASES),
                 p_country(),
                 p_limit("25"),
+                ParamSpec::new(
+                    "regex_keyword",
+                    ParamKind::String,
+                    "Only ideas matching this regular expression (server-side filter). \
+                     report=related_searches only.",
+                ),
             ],
             binding: Binding::Select {
                 arg: "report",
@@ -433,6 +448,12 @@ pub fn catalog() -> Vec<ToolSpec> {
                 p_date(),
                 p_limit("25"),
                 p_offset(),
+                ParamSpec::new(
+                    "regex_url",
+                    ParamKind::String,
+                    "Only URLs matching this regular expression (server-side filter). \
+                     report=top_urls only.",
+                ),
             ],
             binding: Binding::Select {
                 arg: "report",
@@ -457,6 +478,18 @@ pub fn catalog() -> Vec<ToolSpec> {
                     "search",
                     ParamKind::String,
                     "Only keywords containing this term.",
+                ),
+                ParamSpec::new(
+                    "regex_keyword",
+                    ParamKind::String,
+                    "Only keywords matching this regular expression. Filtering happens \
+                     server-side, so only matching rows cost credits.",
+                ),
+                ParamSpec::new(
+                    "regex_url",
+                    ParamKind::String,
+                    "Only rankings whose URL matches this regular expression \
+                     (server-side filter).",
                 ),
                 ParamSpec::new(
                     "from_pos",
@@ -497,7 +530,15 @@ pub fn catalog() -> Vec<ToolSpec> {
             target_scopes: None,
             params: vec![
                 select_param("report", "Which keyword report to fetch.", KEYWORD_CASES),
-                p_kw().required(),
+                ParamSpec::new(
+                    "kw",
+                    ParamKind::String,
+                    "The keyword to analyze. For report='metrics' and \
+                     report='competition' an array of keywords is accepted for a bulk \
+                     lookup in a single call.",
+                )
+                .required()
+                .list_ok(),
                 p_country(),
                 p_limit("25"),
                 ParamSpec::new(
@@ -766,6 +807,22 @@ impl Registry {
                     )
                 })?;
 
+                // Bulk keyword arrays are only documented for the SISTRIX
+                // methods that support them.
+                if spec.name == "sistrix_keyword"
+                    && matches!(args.get("kw"), Some(Value::Array(_)))
+                    && !matches!(
+                        case.method,
+                        "keyword.seo.metrics" | "keyword.seo.competition"
+                    )
+                {
+                    return Err(format!(
+                        "a keyword array is only supported for {arg}='metrics' or \
+                         {arg}='competition'; {arg}='{requested}' needs a single keyword \
+                         string"
+                    ));
+                }
+
                 for required in case.requires {
                     let missing = match args.get(*required) {
                         None | Some(Value::Null) => true,
@@ -1002,6 +1059,19 @@ fn stringify(param: &ParamSpec, value: &Value) -> Result<String, String> {
 
         (ParamKind::String, Value::String(s)) => s.clone(),
         (ParamKind::String, Value::Number(n)) => n.to_string(),
+        // SISTRIX bulk format: a JSON array of strings, e.g. ["kw1", "kw2"].
+        (ParamKind::String, Value::Array(items)) if param.accepts_list => {
+            let strings: Option<Vec<&str>> = items.iter().map(Value::as_str).collect();
+            match strings {
+                Some(list) if !list.is_empty() => {
+                    serde_json::to_string(&list).expect("string list serializes")
+                }
+                _ => return fail("a string or a non-empty array of strings"),
+            }
+        }
+        (ParamKind::String, _) if param.accepts_list => {
+            return fail("a string or an array of strings")
+        }
         (ParamKind::String, _) => return fail("a string"),
 
         (ParamKind::Object, v) => v.to_string(),
@@ -1054,13 +1124,18 @@ fn build_mcp_tool(spec: &ToolSpec, default_country: Option<&str>) -> Tool {
     for param in &spec.params {
         let mut prop = Map::new();
 
-        let json_type = match param.kind {
-            ParamKind::String => "string",
-            ParamKind::Integer => "integer",
-            ParamKind::Boolean => "boolean",
-            ParamKind::Object => "object",
-        };
-        prop.insert("type".into(), json!(json_type));
+        if param.accepts_list {
+            prop.insert("type".into(), json!(["string", "array"]));
+            prop.insert("items".into(), json!({"type": "string"}));
+        } else {
+            let json_type = match param.kind {
+                ParamKind::String => "string",
+                ParamKind::Integer => "integer",
+                ParamKind::Boolean => "boolean",
+                ParamKind::Object => "object",
+            };
+            prop.insert("type".into(), json!(json_type));
+        }
 
         let description = match (param.name, default_country) {
             ("country", Some(c)) => {
@@ -1489,6 +1564,57 @@ mod tests {
                 "expected method error for '{bad}', got: {err}"
             );
         }
+    }
+
+    #[test]
+    fn bulk_keywords_work_for_metrics_and_competition_only() {
+        let registry = Registry::new(None);
+
+        let inv = registry
+            .resolve(
+                "sistrix_keyword",
+                &args(json!({"report": "metrics", "kw": ["chair", "desk"]})),
+            )
+            .unwrap();
+        assert_eq!(inv.method, "keyword.seo.metrics");
+        assert!(inv
+            .params
+            .contains(&("kw".into(), r#"["chair","desk"]"#.into())));
+
+        let err = registry
+            .resolve(
+                "sistrix_keyword",
+                &args(json!({"report": "rankings", "kw": ["chair", "desk"]})),
+            )
+            .unwrap_err();
+        assert!(err.contains("metrics"), "unexpected error: {err}");
+
+        let err = registry
+            .resolve(
+                "sistrix_keyword",
+                &args(json!({"report": "metrics", "kw": []})),
+            )
+            .unwrap_err();
+        assert!(err.contains("non-empty"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn regex_filters_pass_through() {
+        let registry = Registry::new(None);
+        let inv = registry
+            .resolve(
+                "sistrix_domain_rankings",
+                &args(json!({
+                    "target": "example.com",
+                    "regex_keyword": "^buy .*",
+                    "regex_url": "/shop/"
+                })),
+            )
+            .unwrap();
+        assert!(inv
+            .params
+            .contains(&("regex_keyword".into(), "^buy .*".into())));
+        assert!(inv.params.contains(&("regex_url".into(), "/shop/".into())));
     }
 
     #[test]

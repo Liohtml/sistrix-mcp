@@ -9,6 +9,7 @@ use rmcp::ErrorData;
 use tracing::debug;
 
 use crate::client::SistrixClient;
+use crate::prompts;
 use crate::tools::Registry;
 
 /// Guidance returned when the server runs without a configured API key.
@@ -57,7 +58,10 @@ impl ServerHandler for SistrixServer {
         ServerInfo {
             // rmcp negotiates down for older clients automatically.
             protocol_version: ProtocolVersion::LATEST,
-            capabilities: ServerCapabilities::builder().enable_tools().build(),
+            capabilities: ServerCapabilities::builder()
+                .enable_tools()
+                .enable_prompts()
+                .build(),
             server_info: Implementation {
                 name: "sistrix-mcp".to_string(),
                 version: env!("CARGO_PKG_VERSION").to_string(),
@@ -75,7 +79,9 @@ impl ServerHandler for SistrixServer {
                  3. Country indices matter: pass country='de'/'us'/... per call, discover codes \
                  via sistrix_lists.\n\
                  4. For anything not covered, call sistrix_api with any documented method \
-                 (https://www.sistrix.com/api/).",
+                 (https://www.sistrix.com/api/).\n\
+                 5. Guided workflows (SEO health check, keyword research, competitor \
+                 comparison, AI visibility report) are available as MCP prompts.",
                 count = self.registry.tool_count(),
             )),
         }
@@ -91,6 +97,27 @@ impl ServerHandler for SistrixServer {
             next_cursor: None,
             meta: None,
         })
+    }
+
+    async fn list_prompts(
+        &self,
+        _request: Option<PaginatedRequestParam>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ListPromptsResult, ErrorData> {
+        Ok(ListPromptsResult {
+            prompts: prompts::list(),
+            next_cursor: None,
+            meta: None,
+        })
+    }
+
+    async fn get_prompt(
+        &self,
+        request: GetPromptRequestParam,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<GetPromptResult, ErrorData> {
+        prompts::get(&request.name, request.arguments.as_ref())
+            .map_err(|message| ErrorData::invalid_params(message, None))
     }
 
     async fn call_tool(

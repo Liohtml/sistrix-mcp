@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Four guided MCP prompts (surfaced as one-click commands / slash-commands in
+  clients): `seo_health_check`, `keyword_research`, `competitor_comparison`,
+  and `ai_visibility_report`. Each walks the model through a proven,
+  credit-aware analysis sequence — no tool knowledge required.
+- Bulk keyword lookup: `sistrix_keyword` accepts an array of keywords for
+  `report='metrics'` and `report='competition'` (SISTRIX's documented bulk
+  format), so ten keywords cost one call instead of ten.
+- Server-side regex filters: `regex_keyword`/`regex_url` on
+  `sistrix_domain_rankings`, `regex_keyword` on `sistrix_keyword_ideas`
+  (related searches), and `regex_url` on `sistrix_domain_structure`
+  (top URLs) — only matching rows are returned and billed.
 - Human-readable `title` and MCP tool annotations on every tool:
   `readOnlyHint: true` for all curated query tools, `readOnlyHint: false` +
   `destructiveHint: false` for the `sistrix_api` escape hatch (it can reach
