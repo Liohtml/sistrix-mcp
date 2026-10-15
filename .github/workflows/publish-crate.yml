@@ -1,0 +1,52 @@
+name: Publish to crates.io
+
+# Called by the release pipeline for every stable tag, and runnable by hand to
+# (re-)publish an existing tag, e.g. after fixing the registry token.
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Tag to publish
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Tag to publish (e.g. v0.1.3)
+        required: true
+        type: string
+
+jobs:
+  publish:
+    name: cargo publish
+    runs-on: ubuntu-latest
+    # The registry token is an environment secret: GitHub only exposes it to
+    # jobs that declare the environment.
+    environment: CRATE
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Check token
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN || secrets.CRATE }}
+        run: |
+          if [ -z "$CARGO_REGISTRY_TOKEN" ]; then
+            echo "::error::No crates.io token found. Add a secret named CARGO_REGISTRY_TOKEN (or CRATE) to the 'CRATE' environment."
+            exit 1
+          fi
+
+      - name: Check version matches tag
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
+          if [ "v$version" != "${{ inputs.ref }}" ]; then
+            echo "::error::Cargo.toml version $version does not match tag ${{ inputs.ref }}"
+            exit 1
+          fi
+
+      - name: Publish
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN || secrets.CRATE }}
+        run: cargo publish --locked

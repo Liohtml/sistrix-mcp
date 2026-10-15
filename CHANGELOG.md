@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Release pipeline: the crates.io job never saw the registry token, because it
+  is an environment secret and the job did not declare the `CRATE`
+  environment. `continue-on-error` hid the failure, so 0.1.2/0.1.3 never
+  reached crates.io. Publishing now lives in a reusable `publish-crate.yml`
+  that declares the environment, fails loudly on a missing token or a
+  version/tag mismatch, and can be run by hand to publish an existing tag.
+- Update `chacha20` 0.10.1 (yanked on crates.io) to 0.10.2.
+
 ## [0.1.3] - 2026-07-29
 
 ### Added
