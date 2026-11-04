@@ -44,12 +44,18 @@ missing value — the "call X first" pattern that makes agent loops converge.
 
 **Key safety.** The `api_key` travels exclusively in POST bodies (never in
 URLs → never in access logs) and is string-replaced with `[REDACTED]` in every
-error path. The raw tool silently drops `api_key`/`format` overrides.
+error path. `Debug` for the CLI args, config, and HTTP client prints
+`ApiKey([REDACTED])`, so a log or panic cannot dump the key. Cleartext
+`http://` API URLs are rejected unless the host is loopback. The raw tool
+silently drops `api_key`/`format` overrides.
 
-**Resilience.** 3 attempts with exponential backoff on 429/5xx/network errors
-(SISTRIX allows 300 req/min). In-band errors (`{"status":"fail", "error":[…]}`)
-are parsed defensively — the envelope is undocumented — and every documented
-error code carries an actionable hint.
+**Resilience.** 3 attempts on failures that cannot have been billed (connection
+refused, DNS) and on HTTP 429/5xx. HTTP 429 waits for `Retry-After` (capped at
+30s); other retries use exponential backoff. Timeouts and truncated response
+bodies are not retried — SISTRIX may already have charged the call, and the
+error says so. In-band errors (`{"status":"fail", "error":[…]}`) are parsed
+defensively — the envelope is undocumented — and every documented error code
+carries an actionable hint.
 
 **Context budget.** `shape_response` hard-caps serialized responses
 (default 50k chars, UTF-8-safe) and appends guidance on how to narrow the query.
@@ -59,5 +65,6 @@ error code carries an actionable hint.
 All tests run offline. Unit tests cover the dispatcher (schema generation,
 target/scope mapping, case requirements, coercions) and error classification;
 `tests/client_integration.rs` uses wiremock to verify transport behavior:
-form encoding, retries, give-up, non-retry on 4xx, error envelope parsing,
-key scrubbing, and that the key never appears in a URL.
+form encoding, retries, give-up, non-retry on 4xx and on timeouts,
+`Retry-After` handling, error envelope parsing, key scrubbing, and that the
+key never appears in a URL or in `Debug` output.

@@ -273,8 +273,10 @@ tells the model what each call costs, so exploratory conversations stay cheap.
 Check the balance anytime with `sistrix_credits` — it's free, as are
 `sistrix_lists` and the project/tracker list reports.
 
-The rate limit is 300 requests/minute; sistrix-mcp backs off and retries
-automatically when it's hit.
+The rate limit is 300 requests/minute. sistrix-mcp backs off and retries when
+SISTRIX returns HTTP 429 (honouring `Retry-After`) or a 5xx. Timeouts and
+interrupted responses are not retried — that request may already have been
+billed.
 
 ## ⚙️ Configuration
 
@@ -284,7 +286,7 @@ automatically when it's hit.
 | `--country` | `SISTRIX_COUNTRY` | account default | Default country index (e.g. `de`, `at`, `us`) for all country-aware tools |
 | `--timeout-secs` | `SISTRIX_TIMEOUT_SECS` | `30` | Per-request timeout |
 | `--max-response-chars` | `SISTRIX_MAX_RESPONSE_CHARS` | `50000` | Response budget before truncation |
-| `--api-url` | `SISTRIX_API_URL` | `https://api.sistrix.com/` | API endpoint (testing only) |
+| `--api-url` | `SISTRIX_API_URL` | `https://api.sistrix.com/` | API endpoint (testing only). `http://` is accepted only for loopback hosts |
 | `--check` | — | — | Verify the API key, print remaining credits, then exit |
 
 ## 🆚 How is this different from SISTRIX's official MCP integration?

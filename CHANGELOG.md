@@ -7,8 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- `Debug` formatting of the CLI args, runtime config, and HTTP client prints
+  the API key as `[REDACTED]`.
+- Cleartext `http://` API URLs are rejected unless the host is loopback
+  (`127.0.0.1`, `::1`, or `localhost`), so a mis-set `SISTRIX_API_URL` cannot
+  send the key without TLS.
+
 ### Fixed
 
+- Timeouts and response-body read failures are no longer retried. SISTRIX may
+  already have billed the call; the error tells the model that credits may
+  have been consumed. Connection failures (nothing was sent) are still retried.
+- HTTP 429 retries honour `Retry-After` (delta-seconds or an HTTP date),
+  capped at 30 seconds. Other transient HTTP errors keep the exponential
+  backoff.
 - Release pipeline: the crates.io job never saw the registry token, because it
   is an environment secret and the job did not declare the `CRATE`
   environment. `continue-on-error` hid the failure, so 0.1.2/0.1.3 never
@@ -16,6 +30,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that declares the environment, fails loudly on a missing token or a
   version/tag mismatch, and can be run by hand to publish an existing tag.
 - Update `chacha20` 0.10.1 (yanked on crates.io) to 0.10.2.
+
+### Added
+
+- Dependabot updates for Cargo, GitHub Actions, and Docker (minor/patch
+  grouped weekly).
+- Blocking `cargo deny` check (advisories, licenses, bans, sources) on pull
+  requests, `main`, and release tags, plus a weekly scheduled run.
+  `RUSTSEC-2026-0189` (rmcp streamable-HTTP DNS rebinding) is ignored: this
+  server speaks MCP over stdio only and does not enable `server-side-http`.
+- Workflow actions are pinned to commit SHAs.
 
 ## [0.1.3] - 2026-07-29
 
