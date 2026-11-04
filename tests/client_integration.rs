@@ -1,7 +1,12 @@
 //! Offline integration tests for the SISTRIX HTTP client (wiremock).
 
+use std::io::{Read, Write};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
 use serde_json::json;
-use sistrix_mcp::client::{SistrixClient, SistrixError};
+use sistrix_mcp::client::{NetKind, SistrixClient, SistrixError};
 use sistrix_mcp::config::{Args, Config};
 use wiremock::matchers::{body_string_contains, method, path};
 use wiremock::{Mock, MockServer, Request, ResponseTemplate};
@@ -9,16 +14,7 @@ use wiremock::{Mock, MockServer, Request, ResponseTemplate};
 const KEY: &str = "test-api-key-123";
 
 async fn client_for(server: &MockServer) -> SistrixClient {
-    let args = Args {
-        api_key: Some(KEY.into()),
-        country: None,
-        api_url: server.uri(),
-        timeout_secs: 5,
-        max_response_chars: 50_000,
-        check: false,
-    };
-    let config = Config::from_args(&args).unwrap();
-    SistrixClient::new(&config).unwrap()
+    SistrixClient::new(&Config::from_args(&sample_args(&server.uri())).unwrap()).unwrap()
 }
 
 fn params(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
@@ -220,4 +216,183 @@ async fn method_becomes_the_request_path() {
 
     let requests: Vec<Request> = server.received_requests().await.unwrap();
     assert_eq!(requests[0].url.path(), "/keyword.seo.metrics");
+}
+
+#[tokio::test]
+async fn response_timeout_is_not_retried_and_mentions_credits() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_delay(Duration::from_secs(5))
+                .set_body_json(json!({"ok": true})),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let mut args = sample_args(&server.uri());
+    args.timeout_secs = 1;
+    let client = SistrixClient::new(&Config::from_args(&args).unwrap()).unwrap();
+
+    let err = client
+        .call("domain.overview", &params(&[("domain", "example.com")]))
+        .await
+        .unwrap_err();
+    let text = err.to_string();
+    assert!(
+        matches!(
+            err,
+            SistrixError::Network {
+                kind: NetKind::Timeout,
+                ..
+            }
+        ),
+        "{text}"
+    );
+    assert!(
+        text.contains("consumed API credits"),
+        "error should mention possible credit usage: {text}"
+    );
+
+    // A mistaken retry would show up within the backoff window.
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    let requests = server.received_requests().await.unwrap();
+    assert_eq!(
+        requests.len(),
+        1,
+        "a timed-out call must not be sent again (got {})",
+        requests.len()
+    );
+}
+
+#[tokio::test]
+async fn connection_refused_is_retried() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    drop(listener);
+
+    let args = sample_args(&format!("http://{addr}/"));
+    let client = SistrixClient::new(&Config::from_args(&args).unwrap()).unwrap();
+
+    let start = Instant::now();
+    let err = client.call("domain.overview", &[]).await.unwrap_err();
+    let elapsed = start.elapsed();
+
+    assert!(
+        matches!(
+            err,
+            SistrixError::Network {
+                kind: NetKind::Connect,
+                ..
+            }
+        ),
+        "{err}"
+    );
+    // Three attempts sleep 400ms + 800ms. One attempt returns immediately.
+    assert!(
+        elapsed >= Duration::from_millis(1_100),
+        "connection refused was not retried (took {elapsed:?}): {err}"
+    );
+    assert!(
+        !err.to_string().contains("consumed API credits"),
+        "a refused connection was never billed: {err}"
+    );
+}
+
+#[tokio::test]
+async fn http_429_waits_for_retry_after() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(429).insert_header("retry-after", "1"))
+        .up_to_n_times(1)
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"ok": true})))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let client = client_for(&server).await;
+    let start = Instant::now();
+    let result = client.call("credits", &[]).await.unwrap();
+    let elapsed = start.elapsed();
+
+    assert_eq!(result, json!({"ok": true}));
+    assert!(
+        elapsed >= Duration::from_secs(1) && elapsed < Duration::from_secs(5),
+        "expected the client to wait about 1s for Retry-After, took {elapsed:?}"
+    );
+    assert_eq!(server.received_requests().await.unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn truncated_body_is_not_retried_and_mentions_credits() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let addr = listener.local_addr().unwrap();
+    let hits = Arc::new(AtomicUsize::new(0));
+    let hits_bg = Arc::clone(&hits);
+    let stop = Arc::new(AtomicBool::new(false));
+    let stop_bg = Arc::clone(&stop);
+    let background = std::thread::spawn(move || {
+        while !stop_bg.load(Ordering::SeqCst) {
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    hits_bg.fetch_add(1, Ordering::SeqCst);
+                    let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+                    let mut buf = [0_u8; 4096];
+                    let _ = stream.read(&mut buf);
+                    let _ = stream.write_all(
+                        b"HTTP/1.1 200 OK\r\nContent-Length: 64\r\nConnection: close\r\n\r\nnope",
+                    );
+                }
+                Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    let args = sample_args(&format!("http://{addr}/"));
+    let client = SistrixClient::new(&Config::from_args(&args).unwrap()).unwrap();
+    let err = client.call("domain.overview", &[]).await.unwrap_err();
+    tokio::time::sleep(Duration::from_millis(700)).await;
+    stop.store(true, Ordering::SeqCst);
+    let _ = background.join();
+
+    let text = err.to_string();
+    assert!(
+        matches!(
+            err,
+            SistrixError::Network {
+                kind: NetKind::Body | NetKind::Timeout,
+                ..
+            }
+        ),
+        "{text}"
+    );
+    assert!(
+        text.contains("consumed API credits"),
+        "truncated body should mention possible credit usage: {text}"
+    );
+    assert_eq!(
+        hits.load(Ordering::SeqCst),
+        1,
+        "a truncated body was retried: {text}"
+    );
+}
+
+fn sample_args(api_url: &str) -> Args {
+    Args {
+        api_key: Some(KEY.into()),
+        country: None,
+        api_url: api_url.into(),
+        timeout_secs: 5,
+        max_response_chars: 50_000,
+        check: false,
+    }
 }

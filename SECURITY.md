@@ -17,9 +17,11 @@ instead. You will get a response within a few days.
   API method the token permits — scope your `token_auth` to **view access** on
   the sites you need, nothing more.
 - The token is sent exclusively via `POST` form bodies, never in URLs, so it
-  does not end up in server access logs.
-- The token is **redacted** from every error message before it reaches the
-  model or the logs.
+  does not end up in server access logs. `http://` API URLs are rejected
+  unless the host is loopback, so a mis-set endpoint cannot send the token
+  in cleartext.
+- The token is **redacted** from every error message and from `Debug` output
+  (`Args`, `Config`, `SistrixClient`) before it reaches the model or the logs.
 - Reserved parameters (`token_auth`, `module`, `method`, `format`) cannot be
   overridden through tool arguments.
 - TLS certificate verification is **on by default**; `--insecure` must be an

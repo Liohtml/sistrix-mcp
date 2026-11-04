@@ -2,15 +2,17 @@
 //!
 //! All requests go through `POST https://api.sistrix.com/<method>` with
 //! form-encoded parameters so the `api_key` never appears in URLs or server
-//! access logs. Responses are requested as JSON (`format=json`). Transient
-//! failures (429/5xx, timeouts, connection errors) are retried with
-//! exponential backoff — SISTRIX allows 300 requests/minute with at least
-//! 300 ms between requests.
+//! access logs. Responses are requested as JSON (`format=json`). Failures
+//! that are known not to have reached SISTRIX (connection refused, DNS) are
+//! retried with exponential backoff. HTTP 429 honours `Retry-After`.
+//! Timeouts and body-read failures are not retried: SISTRIX bills per
+//! request, and a retry would charge the call again. SISTRIX allows 300
+//! requests/minute with at least 300 ms between requests.
 
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
-use reqwest::header::HeaderValue;
+use reqwest::header::{HeaderMap, HeaderValue, RETRY_AFTER};
 use reqwest::{Client, StatusCode};
 use serde_json::Value;
 use thiserror::Error;
@@ -19,14 +21,19 @@ use tokio::time::Instant;
 use tracing::{debug, warn};
 use url::Url;
 
-use crate::config::Config;
+use crate::config::{ApiKey, Config};
 
 const MAX_ATTEMPTS: u32 = 3;
 const BACKOFF_BASE_MS: u64 = 400;
 /// SISTRIX requires at least 300 ms between requests (300 requests/minute).
 const MIN_REQUEST_SPACING: Duration = Duration::from_millis(300);
+/// Don't sleep for a full minute because a `Retry-After` was huge.
+const MAX_RETRY_AFTER: Duration = Duration::from_secs(30);
 /// Cap error bodies quoted back to the model.
 const ERROR_BODY_PREVIEW: usize = 500;
+/// Shared wording so every "maybe billed" error is recognizable.
+const CREDIT_WARNING: &str =
+    "The call may already have been processed and consumed API credits, so it was not retried";
 
 #[derive(Debug, Error)]
 pub enum SistrixError {
@@ -42,15 +49,32 @@ pub enum SistrixError {
         status: StatusCode,
         body: String,
         hint: Option<&'static str>,
+        /// Server-supplied wait for HTTP 429, already capped at 30s.
+        retry_after: Option<Duration>,
     },
 
-    #[error(
-        "could not reach the SISTRIX API: {0}. Check your network and that api.sistrix.com is up."
-    )]
-    Network(String),
+    /// Transport failure. [`NetKind::Connect`] is safe to retry; the other
+    /// kinds may already have been accepted (and billed) by SISTRIX.
+    #[error("{message}")]
+    Network { kind: NetKind, message: String },
 
     #[error("SISTRIX returned a non-JSON response: {0}")]
     InvalidResponse(String),
+}
+
+/// Why a request never produced a usable response.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NetKind {
+    /// Nothing was sent (connection refused, DNS, unreachable host).
+    Connect,
+    /// Timed out after the request may already have been sent.
+    Timeout,
+    /// Response headers arrived, but the body could not be read.
+    Body,
+    /// Failed locally, before any bytes were sent.
+    BeforeSend,
+    /// Unclassified. Treated as possibly sent.
+    Other,
 }
 
 fn code_suffix(code: &Option<i64>) -> String {
@@ -100,7 +124,7 @@ fn hint_for_code(code: i64) -> Option<&'static str> {
 pub struct SistrixClient {
     http: Client,
     base: Url,
-    api_key: Option<String>,
+    api_key: Option<ApiKey>,
     /// Start time of the last request — clones share it, so concurrent tool
     /// calls are spaced out too.
     last_request: Arc<Mutex<Option<Instant>>>,
@@ -150,11 +174,11 @@ impl SistrixClient {
         let endpoint = self
             .base
             .join(method)
-            .map_err(|e| SistrixError::Network(e.to_string()))?;
+            .map_err(|e| network_failure(NetKind::BeforeSend, self.scrub(&e.to_string())))?;
 
         let mut form: Vec<(&str, &str)> = vec![("format", "json")];
         if let Some(key) = &self.api_key {
-            form.push(("api_key", key));
+            form.push(("api_key", key.expose()));
         }
         for (k, v) in params {
             form.push((k.as_str(), v.as_str()));
@@ -168,14 +192,14 @@ impl SistrixClient {
             self.pace().await;
             match self.send_once(&endpoint, &form).await {
                 Err(err) if attempt < MAX_ATTEMPTS && is_retryable(&err) => {
-                    let delay = BACKOFF_BASE_MS * 2u64.pow(attempt - 1);
+                    let delay = retry_delay(attempt, &err);
                     warn!(
                         method,
                         attempt,
-                        delay_ms = delay,
+                        delay_ms = delay.as_millis() as u64,
                         "retrying after transient error: {err}"
                     );
-                    tokio::time::sleep(Duration::from_millis(delay)).await;
+                    tokio::time::sleep(delay).await;
                 }
                 result => return result,
             }
@@ -193,13 +217,21 @@ impl SistrixClient {
             .form(form)
             .send()
             .await
-            .map_err(|e| SistrixError::Network(self.scrub(&e.to_string())))?;
+            .map_err(|e| network_failure(classify_send(&e), self.scrub(&e.to_string())))?;
 
         let status = response.status();
-        let text = response
-            .text()
-            .await
-            .map_err(|e| SistrixError::Network(self.scrub(&e.to_string())))?;
+        // Read the header before `text()` consumes the response.
+        let retry_after = (status == StatusCode::TOO_MANY_REQUESTS)
+            .then(|| retry_after_from(response.headers()))
+            .flatten();
+        let text = response.text().await.map_err(|e| {
+            let kind = if e.is_timeout() {
+                NetKind::Timeout
+            } else {
+                NetKind::Body
+            };
+            network_failure(kind, self.scrub(&e.to_string()))
+        })?;
 
         if !status.is_success() {
             let hint = match status {
@@ -215,6 +247,7 @@ impl SistrixClient {
                 status,
                 body: self.scrub(preview(&text)),
                 hint,
+                retry_after,
             });
         }
 
@@ -237,10 +270,108 @@ impl SistrixClient {
     /// Never let the API key leak into error messages shown to the model or logs.
     fn scrub(&self, text: &str) -> String {
         match &self.api_key {
-            Some(k) if !k.is_empty() => text.replace(k.as_str(), "[REDACTED]"),
+            Some(k) if !k.expose().is_empty() => text.replace(k.expose(), "[REDACTED]"),
             _ => text.to_string(),
         }
     }
+}
+
+fn network_failure(kind: NetKind, detail: String) -> SistrixError {
+    let message = match kind {
+        NetKind::Connect => format!(
+            "could not reach the SISTRIX API: {detail}. Check your network and that api.sistrix.com is up."
+        ),
+        NetKind::BeforeSend => format!("could not build the SISTRIX request: {detail}."),
+        NetKind::Timeout => format!("the SISTRIX request timed out: {detail}. {CREDIT_WARNING}."),
+        NetKind::Body => {
+            format!("the SISTRIX response could not be read: {detail}. {CREDIT_WARNING}.")
+        }
+        NetKind::Other => format!("the SISTRIX request failed: {detail}. {CREDIT_WARNING}."),
+    };
+    SistrixError::Network { kind, message }
+}
+
+/// Connection never established, so SISTRIX cannot have billed the call.
+///
+/// Checked before [`reqwest::Error::is_timeout`]: a connect timeout did not
+/// leave the machine, whereas a response timeout may already have been billed.
+fn classify_send(err: &reqwest::Error) -> NetKind {
+    if err.is_builder() {
+        return NetKind::BeforeSend;
+    }
+    if is_connect_failure(err) {
+        return NetKind::Connect;
+    }
+    if err.is_timeout() {
+        return NetKind::Timeout;
+    }
+    if err.is_body() || err.is_decode() {
+        return NetKind::Body;
+    }
+    NetKind::Other
+}
+
+fn is_connect_failure(err: &reqwest::Error) -> bool {
+    if err.is_connect() {
+        return true;
+    }
+    let mut source = std::error::Error::source(err);
+    while let Some(inner) = source {
+        if let Some(io) = inner.downcast_ref::<std::io::Error>() {
+            if matches!(
+                io.kind(),
+                std::io::ErrorKind::ConnectionRefused
+                    | std::io::ErrorKind::NotConnected
+                    | std::io::ErrorKind::HostUnreachable
+                    | std::io::ErrorKind::NetworkUnreachable
+                    | std::io::ErrorKind::AddrNotAvailable
+            ) {
+                return true;
+            }
+        }
+        source = inner.source();
+    }
+    false
+}
+
+/// How long to wait before the next attempt.
+///
+/// HTTP 429 uses `Retry-After` when SISTRIX sends one (delta-seconds or an
+/// HTTP date), capped so a huge value cannot stall the MCP session. Anything
+/// else uses exponential backoff.
+fn retry_delay(attempt: u32, err: &SistrixError) -> Duration {
+    if let SistrixError::Http {
+        status: StatusCode::TOO_MANY_REQUESTS,
+        retry_after: Some(after),
+        ..
+    } = err
+    {
+        return (*after).min(MAX_RETRY_AFTER);
+    }
+    let shift = attempt.saturating_sub(1).min(4);
+    Duration::from_millis(BACKOFF_BASE_MS.saturating_mul(1_u64 << shift))
+}
+
+fn retry_after_from(headers: &HeaderMap) -> Option<Duration> {
+    let raw = headers.get(RETRY_AFTER)?.to_str().ok()?;
+    parse_retry_after(raw, SystemTime::now())
+}
+
+fn parse_retry_after(value: &str, now: SystemTime) -> Option<Duration> {
+    let value = value.trim();
+    if value.is_empty() {
+        return None;
+    }
+    if value.bytes().all(|b| b.is_ascii_digit()) {
+        let secs: u64 = value.parse().ok()?;
+        return Some(Duration::from_secs(secs).min(MAX_RETRY_AFTER));
+    }
+    let when = httpdate::parse_http_date(value).ok()?;
+    Some(
+        when.duration_since(now)
+            .unwrap_or(Duration::ZERO)
+            .min(MAX_RETRY_AFTER),
+    )
 }
 
 /// Detect an in-band SISTRIX error and pull out `(code, message)`.
@@ -286,7 +417,9 @@ fn extract_api_error(json: &Value) -> Option<(Option<i64>, String)> {
 
 fn is_retryable(err: &SistrixError) -> bool {
     match err {
-        SistrixError::Network(_) => true,
+        // Only when the request cannot have been billed. Timeouts and
+        // truncated bodies are returned to the caller as-is.
+        SistrixError::Network { kind, .. } => *kind == NetKind::Connect,
         SistrixError::Http { status, .. } => matches!(
             *status,
             StatusCode::TOO_MANY_REQUESTS
@@ -365,11 +498,27 @@ mod tests {
 
     #[test]
     fn retryable_classification() {
-        assert!(is_retryable(&SistrixError::Network("timeout".into())));
+        assert!(is_retryable(&network(NetKind::Connect)));
+        assert!(!is_retryable(&network(NetKind::Timeout)));
+        assert!(!is_retryable(&network(NetKind::Body)));
+        assert!(!is_retryable(&network(NetKind::BeforeSend)));
+        assert!(!is_retryable(&network(NetKind::Other)));
+        let timeout = network(NetKind::Timeout);
+        assert!(
+            timeout.to_string().contains("consumed API credits"),
+            "{timeout}"
+        );
         assert!(is_retryable(&SistrixError::Http {
             status: StatusCode::SERVICE_UNAVAILABLE,
             body: String::new(),
             hint: None,
+            retry_after: None,
+        }));
+        assert!(is_retryable(&SistrixError::Http {
+            status: StatusCode::TOO_MANY_REQUESTS,
+            body: String::new(),
+            hint: None,
+            retry_after: Some(Duration::from_secs(1)),
         }));
         assert!(is_retryable(&SistrixError::Api {
             code: Some(429),
@@ -390,6 +539,83 @@ mod tests {
             status: StatusCode::UNAUTHORIZED,
             body: String::new(),
             hint: None,
+            retry_after: None,
         }));
+    }
+
+    #[test]
+    fn retry_after_is_honoured_and_capped() {
+        let now = httpdate::parse_http_date("Sun, 06 Nov 1994 08:49:37 GMT").unwrap();
+        assert_eq!(parse_retry_after("1", now), Some(Duration::from_secs(1)));
+        assert_eq!(parse_retry_after("120", now), Some(Duration::from_secs(30)));
+        assert_eq!(parse_retry_after("0", now), Some(Duration::ZERO));
+        assert_eq!(
+            parse_retry_after("Sun, 06 Nov 1994 08:49:39 GMT", now),
+            Some(Duration::from_secs(2))
+        );
+        assert_eq!(
+            parse_retry_after(
+                "Sun, 06 Nov 1994 08:49:37 GMT",
+                now + Duration::from_secs(5)
+            ),
+            Some(Duration::ZERO)
+        );
+        // A date more than 30s ahead is capped, not slept in full.
+        assert_eq!(
+            parse_retry_after("Sun, 06 Nov 1994 08:51:37 GMT", now),
+            Some(Duration::from_secs(30))
+        );
+        assert_eq!(parse_retry_after("not-a-date", now), None);
+        assert_eq!(parse_retry_after("", now), None);
+
+        let with_header = SistrixError::Http {
+            status: StatusCode::TOO_MANY_REQUESTS,
+            body: String::new(),
+            hint: None,
+            retry_after: Some(Duration::from_secs(1)),
+        };
+        assert_eq!(retry_delay(1, &with_header), Duration::from_secs(1));
+
+        let uncapped = SistrixError::Http {
+            status: StatusCode::TOO_MANY_REQUESTS,
+            body: String::new(),
+            hint: None,
+            retry_after: Some(Duration::from_secs(90)),
+        };
+        assert_eq!(retry_delay(1, &uncapped), MAX_RETRY_AFTER);
+
+        let backoff = SistrixError::Http {
+            status: StatusCode::SERVICE_UNAVAILABLE,
+            body: String::new(),
+            hint: None,
+            retry_after: Some(Duration::from_secs(1)),
+        };
+        assert_eq!(retry_delay(1, &backoff), Duration::from_millis(400));
+        assert_eq!(retry_delay(2, &backoff), Duration::from_millis(800));
+    }
+
+    #[test]
+    fn debug_redacts_api_key_on_the_client() {
+        let sentinel = "super-secret-sistrix-key-9f3c2a";
+        let args = crate::config::Args {
+            api_key: Some(sentinel.into()),
+            country: None,
+            api_url: crate::config::DEFAULT_API_URL.into(),
+            timeout_secs: 30,
+            max_response_chars: 50_000,
+            check: false,
+        };
+        let cfg = Config::from_args(&args).unwrap();
+        let client = SistrixClient::new(&cfg).unwrap();
+        let rendered = format!("{args:?}\n{cfg:?}\n{client:?}");
+        assert!(
+            !rendered.contains(sentinel),
+            "API key leaked via Debug: {rendered}"
+        );
+        assert!(rendered.contains("[REDACTED]"));
+    }
+
+    fn network(kind: NetKind) -> SistrixError {
+        network_failure(kind, "detail".into())
     }
 }

@@ -36,7 +36,7 @@ cargo run -- --api-key YOUR_KEY --check
 
 - Conventional commits appreciated (`feat:`, `fix:`, `docs:`, ...), not enforced.
 - One logical change per PR keeps reviews fast.
-- CI (fmt, clippy, tests on 3 platforms, MSRV, Docker build) must pass.
+- CI (fmt, clippy, tests on 3 platforms, MSRV, cargo-deny, Docker build) must pass.
 
 ## Reporting bugs
 
